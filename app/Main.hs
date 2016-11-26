@@ -42,7 +42,7 @@ data GameState = GameState
     , gameBets :: [Int]
     } deriving (Show)
 
--- Draws a card from the deck and adds it to the player.
+-- Draws a card from the deck and adds it to the player given by the index.
 dealCardToPlayer :: Int -> StateT GameState IO ()
 dealCardToPlayer i = state $ \s -> let (card:rest) = gameDeck s
                                        players = gamePlayers s
@@ -64,6 +64,14 @@ getPlayers = state $ \s -> (gamePlayers s, s)
 getDealer :: StateT GameState IO Dealer
 getDealer = state $ \s -> (gameDealer s, s)
 
+getBets :: StateT GameState IO [Int]
+getBets = state $ \s -> (gameBets s, s)
+
+-- Adds the given amount of money to the player given by the index.
+addMoneyToPlayer :: Int -> Int -> StateT GameState IO ()
+addMoneyToPlayer money i = state $ \s -> let players = gamePlayers s
+                                         in ((), s { gamePlayers = updateList i (addMoney money) players })
+
 -- Deals cards to the dealer and the players.
 dealCards :: Int -> StateT GameState IO ()
 dealCards num = do
@@ -72,13 +80,51 @@ dealCards num = do
     mapM_ dealCardToPlayer dealIndexes 
     mapM_ (const dealCardToDealer) [1..num]
 
+-- TODO(DarinM223): clean up ugly code :P
+handleBets :: StateT GameState IO ()
+handleBets = do
+    dealer <- getDealer
+    players <- getPlayers
+    bets <- getBets
+    if dealerScore dealer > 21
+        then do
+            lift $ putStrLn "Dealer busted"
+            forM (zip players [0..length players - 1]) (\(p,i) ->
+                if playerScore p <= 21
+                    then do
+                        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " won"
+                        addMoneyToPlayer (bets !! i) i
+                        lift $ putStrLn $ "Player received " ++ show (bets !! i)
+                        return ()
+                    else do
+                        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " busted"
+                        addMoneyToPlayer (- (bets !! i)) i
+                        lift $ putStrLn $ "Player lost " ++ show (bets !! i)
+                        return ())
+            return ()
+        else do
+            forM (zip players [0..length players - 1]) (\(p,i) ->
+                if playerScore p < (dealerScore dealer)
+                    then do
+                        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " won"
+                        addMoneyToPlayer (bets !! i) i
+                        lift $ putStrLn $ "Player received " ++ show (bets !! i)
+                        return ()
+                    else do
+                        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " lost"
+                        addMoneyToPlayer (- (bets !! i)) i
+                        lift $ putStrLn $ "Player lost " ++ show (bets !! i)
+                        return ())
+            return ()
+
 -- Runs a turn in the blackjack game.
 runTurn :: StateT GameState IO ()
 runTurn = do
     dealCards 2
-    players <- getPlayers
     dealer <- getDealer
+    players <- getPlayers
     handlePlayers players 0 dealer
+    handleBets
     where handlePlayers (p:ps) i d = do
               action <- (lift . decideAction) p
               case action of Hit   -> dealCardToPlayer i
@@ -120,8 +166,8 @@ main = do
     bets <- mapM (\i -> readBet (players !! i) (i+1)) [0..5]
     let dealer = Dealer { dealerHighAces = 0, dealerScore = 0 }
     let gameState = GameState { gameDealer = dealer, gamePlayers = players, gameDeck = deck gen, gameBets = bets }
-    newState <- execStateT runTurn gameState
-    print newState
+    execStateT runTurn gameState
+    return ()
 
 --
 -- Helper functions
@@ -179,3 +225,8 @@ updateScore :: (Playable p) => Card -> p -> (Int, Int)
 updateScore c p
     | cardValue c == 1 = balanceScore (score p + 11) (highAces p + 1)
     | otherwise        = balanceScore (score p + cardValue c) (highAces p)
+
+addMoney :: Int -> Player -> Player
+addMoney money p
+    | playerMoney p + money >= 0 = p { playerMoney = playerMoney p + money }
+    | otherwise                  = p { playerMoney = 0 }
