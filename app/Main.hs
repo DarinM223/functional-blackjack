@@ -127,19 +127,22 @@ runTurn = do
     dealCards 2
     dealer <- getDealer
     players <- getPlayers
-    handlePlayers players 0 dealer
+    handlePlayers 0 (length players)
     displayScores
     handleBets
-    where handlePlayers (p:ps) i d = do
-              action <- (lift . decideAction) p
-              case action of Hit   -> dealCardToPlayer i
-                             Stand -> return ()
-              handlePlayers ps (i + 1) d
-          handlePlayers [] _ d = do
-              action <- (lift . decideAction) d
-              lift $ putStrLn $ "Dealer's action is: " ++ show action
-              case action of Hit   -> dealCardToDealer
-                             Stand -> return ()
+    where handlePlayers i len
+              | i < len = do
+                  players <- getPlayers
+                  lift $ putStrLn $ "Player " ++ show (i + 1) ++ "'s current score is: " ++ (show . playerScore) (players !! i)
+                  action <- (lift . decideAction) (players !! i)
+                  case action of Hit   -> do dealCardToPlayer i; handlePlayers i len
+                                 Stand -> handlePlayers (i + 1) len
+              | otherwise = do
+                  dealer <- getDealer
+                  action <- (lift . decideAction) dealer
+                  lift $ putStrLn $ "Dealer's action is: " ++ show action
+                  case action of Hit   -> do dealCardToDealer; handlePlayers i len
+                                 Stand -> return ()
 
 class Playable p where
     score :: p -> Int
@@ -150,7 +153,9 @@ class Playable p where
 instance Playable Player where
     score = playerScore
     highAces = playerHighAces
-    decideAction = readAction
+    decideAction p
+        | playerScore p >= 21 = return Stand
+        | otherwise           = readAction p
     addCard card player = player { playerScore = score', playerHighAces = highAces' }
         where (score', highAces') = updateScore card player
 
@@ -194,7 +199,6 @@ updateList index f list = let (x, elem:ys) = splitAt index list
 -- the player enters a valid number indicating the action.
 readAction :: Player -> IO Action
 readAction p = do
-    putStrLn $ "Player's current score is: " ++ (show . playerScore) p
     putStrLn "Enter (1) to Hit, (2) to Stand"
     line <- getLine
     let action = (join . mapM actionFromInput . readMaybe) line
