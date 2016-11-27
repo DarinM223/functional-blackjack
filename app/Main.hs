@@ -177,9 +177,8 @@ runTurn = do
     displayMoney
     readBets
     dealCards 2
-    dealer <- getDealer
-    players <- getPlayers
-    handlePlayers 0 (length players)
+    players <- numPlayers
+    handlePlayers 0 players
     displayScores
     handleBets
     resetScores
