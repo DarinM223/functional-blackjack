@@ -80,42 +80,46 @@ dealCards num = do
     mapM_ dealCardToPlayer dealIndexes 
     mapM_ (const dealCardToDealer) [1..num]
 
--- TODO(DarinM223): clean up ugly code :P
+-- Checks if the player lost or won and either takes or gives money.
+handleBet :: [Int] -> Dealer -> Player -> Int -> StateT GameState IO ()
+handleBet bets d p i
+    | playerScore p > 21 = do
+        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " busted"
+        addMoneyToPlayer (- (bets !! i)) i
+        lift $ putStrLn $ "Player lost " ++ show (bets !! i)
+        return ()
+    | dealerScore d > 21 = do
+        lift $ putStrLn $ "The dealer busted but player " ++ show (i + 1) ++ " didn't bust"
+        addMoneyToPlayer (bets !! i) i
+        lift $ putStrLn $ "Player received " ++ show (bets !! i)
+        return ()
+    | playerScore p > dealerScore d = do
+        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " had a higher score than the dealer"
+        addMoneyToPlayer (bets !! i) i
+        lift $ putStrLn $ "Player received " ++ show (bets !! i)
+        return ()
+    | otherwise = do
+        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " had a lower or equal score than the dealer"
+        addMoneyToPlayer (- (bets !! i)) i
+        lift $ putStrLn $ "Player lost " ++ show (bets !! i)
+        return ()
+
+displayScores :: StateT GameState IO ()
+displayScores = do
+    dealer <- getDealer
+    players <- getPlayers
+    lift $ putStrLn $ "The dealer's score is: " ++ show (dealerScore dealer)
+    forM_ (zip players [0..length players - 1]) (\(p,i) ->
+        lift $ putStrLn $ "Player " ++ show (i + 1) ++ "'s score is: " ++ show (playerScore p))
+    return ()
+
 handleBets :: StateT GameState IO ()
 handleBets = do
     dealer <- getDealer
     players <- getPlayers
     bets <- getBets
-    if dealerScore dealer > 21
-        then do
-            lift $ putStrLn "Dealer busted"
-            forM (zip players [0..length players - 1]) (\(p,i) ->
-                if playerScore p <= 21
-                    then do
-                        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " won"
-                        addMoneyToPlayer (bets !! i) i
-                        lift $ putStrLn $ "Player received " ++ show (bets !! i)
-                        return ()
-                    else do
-                        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " busted"
-                        addMoneyToPlayer (- (bets !! i)) i
-                        lift $ putStrLn $ "Player lost " ++ show (bets !! i)
-                        return ())
-            return ()
-        else do
-            forM (zip players [0..length players - 1]) (\(p,i) ->
-                if playerScore p < (dealerScore dealer)
-                    then do
-                        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " won"
-                        addMoneyToPlayer (bets !! i) i
-                        lift $ putStrLn $ "Player received " ++ show (bets !! i)
-                        return ()
-                    else do
-                        lift $ putStrLn $ "Player " ++ show (i + 1) ++ " lost"
-                        addMoneyToPlayer (- (bets !! i)) i
-                        lift $ putStrLn $ "Player lost " ++ show (bets !! i)
-                        return ())
-            return ()
+    forM_ (zip players [0..length players - 1]) (uncurry $ handleBet bets dealer)
+    return ()
 
 -- Runs a turn in the blackjack game.
 runTurn :: StateT GameState IO ()
@@ -124,6 +128,7 @@ runTurn = do
     dealer <- getDealer
     players <- getPlayers
     handlePlayers players 0 dealer
+    displayScores
     handleBets
     where handlePlayers (p:ps) i d = do
               action <- (lift . decideAction) p
