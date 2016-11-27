@@ -26,6 +26,7 @@ executable blackjack-exe
   build-depends:       base
                      , blackjack
                      , mtl
+                     , monad-loops
                      , random
                      , random-shuffle
   default-language:    Haskell2010
