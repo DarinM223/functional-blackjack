@@ -43,59 +43,61 @@ data GameState = GameState
     , gameBets :: [Int]
     } deriving (Show)
 
-numPlayers :: StateT GameState IO Int
+type GameStateM = StateT GameState IO
+
+numPlayers :: GameStateM Int
 numPlayers = state $ \s -> ((length . gamePlayers) s, s)
 
-getPlayers :: StateT GameState IO [Player]
+getPlayers :: GameStateM [Player]
 getPlayers = state $ \s -> (gamePlayers s, s)
 
-getDealer :: StateT GameState IO Dealer
+getDealer :: GameStateM Dealer
 getDealer = state $ \s -> (gameDealer s, s)
 
-getBets :: StateT GameState IO [Int]
+getBets :: GameStateM [Int]
 getBets = state $ \s -> (gameBets s, s)
 
-setBets :: [Int] -> StateT GameState IO ()
+setBets :: [Int] -> GameStateM ()
 setBets bets = state $ \s -> ((), s { gameBets = bets })
 
 -- Asks the players for the bets and sets the bets in the state.
-readBets :: StateT GameState IO ()
+readBets :: GameStateM ()
 readBets = do
     players <- getPlayers
     bets <- mapM (\i -> lift $ readBet (players !! i) (i+1)) [0..length players - 1]
     setBets bets
 
 -- Draws a card from the deck and adds it to the player given by the index.
-dealCardToPlayer :: Int -> StateT GameState IO ()
+dealCardToPlayer :: Int -> GameStateM ()
 dealCardToPlayer i = state $ \s -> let (card:rest) = gameDeck s
                                        players = gamePlayers s
                                    in ((), s { gameDeck = rest
                                              , gamePlayers = updateList i (addCard card) players })
 
 -- Draws a card from the deck and adds it to the dealer.
-dealCardToDealer :: StateT GameState IO ()
+dealCardToDealer :: GameStateM ()
 dealCardToDealer = state $ \s -> let (card:rest) = gameDeck s
                                      dealer = gameDealer s
                                  in ((), s { gameDeck = rest, gameDealer = addCard card dealer })
 
 -- Removes players who have no money.
-removeBrokePlayers :: StateT GameState IO ()
+removeBrokePlayers :: GameStateM ()
 removeBrokePlayers = state $ \s -> let players = gamePlayers s
                                        removedBroke = filter ((/= 0) . playerMoney) players
                                     in ((), s { gamePlayers = removedBroke })
 
 -- Adds the given amount of money to the player given by the index.
-addMoneyToPlayer :: Int -> Int -> StateT GameState IO ()
+addMoneyToPlayer :: Int -> Int -> GameStateM ()
 addMoneyToPlayer money i = state $ \s -> let players = gamePlayers s
                                          in ((), s { gamePlayers = updateList i (addMoney money) players })
 
 -- Resets all of the player's scores to 0.
-resetScores :: StateT GameState IO ()
+resetScores :: GameStateM ()
 resetScores = state $ \s -> let players = gamePlayers s
                             in ((), s { gamePlayers = fmap (\p -> p { playerScore = 0 }) players })
 
 -- Deals cards to the dealer and the players.
-dealCards :: Int -> StateT GameState IO ()
+dealCards :: Int -> GameStateM ()
 dealCards num = do
     players <- numPlayers
     let dealIndexes = (\_ b -> b) <$> [1..num] <*> [0..players - 1]
@@ -103,7 +105,7 @@ dealCards num = do
     mapM_ (const dealCardToDealer) [1..num]
 
 -- Checks if the player lost or won and either takes or gives money.
-handleBet :: [Int] -> Dealer -> Player -> Int -> StateT GameState IO ()
+handleBet :: [Int] -> Dealer -> Player -> Int -> GameStateM ()
 handleBet bets d p i
     | playerScore p > 21 = do
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ " busted"
@@ -127,7 +129,7 @@ handleBet bets d p i
         return ()
 
 -- Displays the player's money.
-displayMoney :: StateT GameState IO ()
+displayMoney :: GameStateM ()
 displayMoney = do
     players <- getPlayers
     forM_ (zip players [0..length players - 1]) (\(p,i) ->
@@ -135,7 +137,7 @@ displayMoney = do
     return ()
 
 -- Displays the scores of the players and the dealer.
-displayScores :: StateT GameState IO ()
+displayScores :: GameStateM ()
 displayScores = do
     dealer <- getDealer
     players <- getPlayers
@@ -145,7 +147,7 @@ displayScores = do
     return ()
 
 -- Handles the bet for every player after a turn.
-handleBets :: StateT GameState IO ()
+handleBets :: GameStateM ()
 handleBets = do
     dealer <- getDealer
     players <- getPlayers
@@ -156,7 +158,7 @@ handleBets = do
 -- Goes through every player asking for actions and applying them.
 -- Will ask for actions multiple times until it gets the Stand action
 -- (either automatically or chosen by the player).
-handlePlayers :: Int -> Int -> StateT GameState IO ()
+handlePlayers :: Int -> Int -> GameStateM ()
 handlePlayers i len
     | i < len = do
         players <- getPlayers
@@ -172,7 +174,7 @@ handlePlayers i len
                        Stand -> return ()
 
 -- Runs a turn in the blackjack game.
-runTurn :: StateT GameState IO ()
+runTurn :: GameStateM ()
 runTurn = do
     displayMoney
     readBets
@@ -184,7 +186,7 @@ runTurn = do
     resetScores
     removeBrokePlayers
 
-run :: StateT GameState IO ()
+run :: GameStateM ()
 run = whileM_ (fmap ((/= 0) . length) getPlayers) runTurn
 
 class Playable p where
