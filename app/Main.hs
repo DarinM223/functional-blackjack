@@ -134,10 +134,8 @@ displayMoney = do
 displayScores :: GameStateM ()
 displayScores = do
     s <- get
-    let dealer = gameDealer s
-    let players = gamePlayers s
-    lift $ putStrLn $ "The dealer's score is: " ++ show (dealerScore dealer)
-    forM_ (zip players [0..]) $ \(p,i) ->
+    lift $ putStrLn $ "The dealer's score is: " ++ show (dealerScore . gameDealer $ s)
+    forM_ (zip (gamePlayers s) [0..]) $ \(p,i) ->
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ "'s score is: " ++ show (playerScore p)
     return ()
 
@@ -146,8 +144,6 @@ handleBets :: GameStateM ()
 handleBets = do
     s <- get
     let dealer = gameDealer s
-    let players = gamePlayers s
-    let bets = gameBets s
     forM_ (zip3 (gamePlayers s) (gameBets s) [0..]) $ \(p, b, i) ->
         handleBet dealer p b i
     return ()
@@ -162,14 +158,20 @@ handlePlayers i len
         let players = gamePlayers s
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ "'s current score is: " ++ (show . playerScore) (players !! i)
         action <- (lift . decideAction) (players !! i)
-        case action of Hit   -> do dealCardToPlayer i; handlePlayers i len
-                       Stand -> handlePlayers (i + 1) len
+        case action of
+            Hit -> do
+                dealCardToPlayer i
+                handlePlayers i len
+            Stand -> handlePlayers (i + 1) len
     | otherwise = do
         s <- get
         action <- (lift . decideAction) $ gameDealer s
         lift $ putStrLn $ "Dealer's action is: " ++ show action
-        case action of Hit   -> do dealCardToDealer; handlePlayers i len
-                       Stand -> return ()
+        case action of
+            Hit -> do
+                dealCardToDealer
+                handlePlayers i len
+            Stand -> return ()
 
 -- Runs a turn in the blackjack game.
 runTurn :: GameStateM ()
@@ -229,8 +231,9 @@ main = do
 
 -- Attempts to convert a string to a number.
 readMaybe :: (Read r) => String -> Maybe r
-readMaybe st = case reads st of [(x,"")] -> Just x
-                                _        -> Nothing
+readMaybe st = case reads st of
+    [(x,"")] -> Just x
+    _        -> Nothing
 
 -- Updates a list by replacing the element at the specified index
 -- with a new element.
@@ -247,8 +250,9 @@ readAction p = do
     putStrLn "Enter (1) to Hit, (2) to Stand"
     line <- getLine
     let action = (join . mapM actionFromInput . readMaybe) line
-    case action of Just action -> return action
-                   Nothing     -> readAction p
+    case action of
+        Just action -> return action
+        Nothing     -> readAction p
   where
     actionFromInput 1 = Just Hit
     actionFromInput 2 = Just Stand
@@ -260,8 +264,9 @@ readBet :: Player -> Int -> IO Int
 readBet p i = do
     putStrLn $ "Enter the bet amount for player " ++ show i ++ ":"
     line <- getLine
-    case (join . mapM check . readMaybe) line of Just amount -> return amount
-                                                 Nothing     -> readBet p i
+    case (join . mapM check . readMaybe) line of
+        Just amount -> return amount
+        Nothing     -> readBet p i
   where
     check amount
         | playerMoney p - amount >= 0 = Just amount
