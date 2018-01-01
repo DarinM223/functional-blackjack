@@ -21,7 +21,8 @@ type Deck = [Card]
 -- Creates a standard 52 card deck.
 deck :: StdGen -> Deck
 deck = shuffle' cards (length cards)
-  where cards = card <$> [Hearts, Spades, Clubs, Diamonds] <*> [1..13]
+  where
+    cards = card <$> [Hearts, Spades, Clubs, Diamonds] <*> [1..13]
 
 data Action = Stand | Hit deriving (Show)
 
@@ -97,27 +98,27 @@ dealCards num = do
     mapM_ (const dealCardToDealer) [1..num]
 
 -- Checks if the player lost or won and either takes or gives money.
-handleBet :: [Int] -> Dealer -> Player -> Int -> GameStateM ()
-handleBet bets d p i
+handleBet :: Dealer -> Player -> Int -> Int -> GameStateM ()
+handleBet d p bet i
     | playerScore p > 21 = do
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ " busted"
-        addMoneyToPlayer (- (bets !! i)) i
-        lift $ putStrLn $ "Player lost " ++ show (bets !! i)
+        addMoneyToPlayer (- bet) i
+        lift $ putStrLn $ "Player lost " ++ show bet
         return ()
     | dealerScore d > 21 = do
         lift $ putStrLn $ "The dealer busted but player " ++ show (i + 1) ++ " didn't bust"
-        addMoneyToPlayer (bets !! i) i
-        lift $ putStrLn $ "Player received " ++ show (bets !! i)
+        addMoneyToPlayer bet i
+        lift $ putStrLn $ "Player received " ++ show bet
         return ()
     | playerScore p > dealerScore d = do
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ " had a higher score than the dealer"
-        addMoneyToPlayer (bets !! i) i
-        lift $ putStrLn $ "Player received " ++ show (bets !! i)
+        addMoneyToPlayer bet i
+        lift $ putStrLn $ "Player received " ++ show bet
         return ()
     | otherwise = do
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ " had a lower or equal score than the dealer"
-        addMoneyToPlayer (- (bets !! i)) i
-        lift $ putStrLn $ "Player lost " ++ show (bets !! i)
+        addMoneyToPlayer (- bet) i
+        lift $ putStrLn $ "Player lost " ++ show bet 
         return ()
 
 -- Displays the player's money.
@@ -147,7 +148,8 @@ handleBets = do
     let dealer = gameDealer s
     let players = gamePlayers s
     let bets = gameBets s
-    forM_ (zip players [0..]) (uncurry $ handleBet bets dealer)
+    forM_ (zip3 (gamePlayers s) (gameBets s) [0..]) $ \(p, b, i) ->
+        handleBet dealer p b i
     return ()
 
 -- Goes through every player asking for actions and applying them.
@@ -198,7 +200,8 @@ instance Playable Player where
         | playerScore p >= 21 = return Stand
         | otherwise           = readAction p
     addCard card player = player { playerScore = score', playerHighAces = highAces' }
-      where (score', highAces') = updateScore card player
+      where
+        (score', highAces') = updateScore card player
 
 instance Playable Dealer where
     score = dealerScore
@@ -207,7 +210,8 @@ instance Playable Dealer where
         | dealerScore d >= 17 = return Stand
         | otherwise           = return Hit
     addCard card dealer = dealer { dealerScore = score', dealerHighAces = highAces' }
-      where (score', highAces') = updateScore card dealer
+      where
+        (score', highAces') = updateScore card dealer
 
 main :: IO ()
 main = do
@@ -232,8 +236,9 @@ readMaybe st = case reads st of [(x,"")] -> Just x
 -- with a new element.
 updateList :: Int -> (a -> a) -> [a] -> [a]
 updateList index f list = x ++ elem' : ys
-  where (x, elem:ys) = splitAt index list
-        elem' = f elem
+  where
+    (x, elem:ys) = splitAt index list
+    elem' = f elem
 
 -- Continues to ask the player to input an action until
 -- the player enters a valid number indicating the action.
@@ -244,9 +249,10 @@ readAction p = do
     let action = (join . mapM actionFromInput . readMaybe) line
     case action of Just action -> return action
                    Nothing     -> readAction p
-  where actionFromInput 1 = Just Hit
-        actionFromInput 2 = Just Stand
-        actionFromInput _ = Nothing
+  where
+    actionFromInput 1 = Just Hit
+    actionFromInput 2 = Just Stand
+    actionFromInput _ = Nothing
 
 -- Continues to ask the player to input the bet amount
 -- until the player enters a valid bet amount.
@@ -256,9 +262,10 @@ readBet p i = do
     line <- getLine
     case (join . mapM check . readMaybe) line of Just amount -> return amount
                                                  Nothing     -> readBet p i
-  where check amount
-            | playerMoney p - amount >= 0 = Just amount
-            | otherwise                   = Nothing
+  where
+    check amount
+        | playerMoney p - amount >= 0 = Just amount
+        | otherwise                   = Nothing
 
 -- Returns the best score possible given the number of high aces
 -- and the score by converting high aces to low aces only if the total
