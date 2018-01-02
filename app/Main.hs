@@ -28,20 +28,20 @@ data Action = Stand | Hit deriving (Show)
 
 data Player = Player
     { playerHighAces :: Int
-    , playerScore :: Int
-    , playerMoney :: Int
+    , playerScore    :: Int
+    , playerMoney    :: Int
     } deriving (Show)
 
 data Dealer = Dealer
     { dealerHighAces :: Int
-    , dealerScore :: Int
+    , dealerScore    :: Int
     } deriving (Show)
 
 data GameState = GameState
-    { gameDealer :: Dealer
+    { gameDealer  :: Dealer
     , gamePlayers :: [Player]
-    , gameDeck :: Deck
-    , gameBets :: [Int]
+    , gameDeck    :: Deck
+    , gameBets    :: [Int]
     } deriving (Show)
 
 type GameStateM = StateT GameState IO
@@ -125,8 +125,7 @@ handleBet d p bet i
 displayMoney :: GameStateM ()
 displayMoney = do
     s <- get
-    let players = gamePlayers s
-    forM_ (zip players [0..]) $ \(p,i) ->
+    forM_ (zip (gamePlayers s) [0..]) $ \(p,i) ->
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ "'s money is: " ++ show (playerMoney p)
     return ()
 
@@ -143,9 +142,8 @@ displayScores = do
 handleBets :: GameStateM ()
 handleBets = do
     s <- get
-    let dealer = gameDealer s
     forM_ (zip3 (gamePlayers s) (gameBets s) [0..]) $ \(p, b, i) ->
-        handleBet dealer p b i
+        handleBet (gameDealer s) p b i
     return ()
 
 -- Goes through every player asking for actions and applying them.
@@ -219,9 +217,18 @@ main :: IO ()
 main = do
     gen <- getStdGen
     let initMoney = 100
-    let players = map (const Player { playerHighAces = 0, playerScore = 0, playerMoney = initMoney }) [0..5]
+    let players = const Player
+            { playerHighAces = 0
+            , playerScore    = 0
+            , playerMoney    = initMoney
+            } <$> [0..5]
     let dealer = Dealer { dealerHighAces = 0, dealerScore = 0 }
-    let gameState = GameState { gameDealer = dealer, gamePlayers = players, gameDeck = deck gen, gameBets = [] }
+    let gameState = GameState
+            { gameDealer  = dealer
+            , gamePlayers = players
+            , gameDeck    = deck gen
+            , gameBets    = []
+            }
     execStateT run gameState
     return ()
 
