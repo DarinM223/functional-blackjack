@@ -50,6 +50,47 @@ type GameStateM = StateT GameState IO
 numPlayers :: GameState -> Int
 numPlayers = length . gamePlayers
 
+-- | Draws a card from the deck and adds it to the player given by the index.
+dealCardToPlayer :: Int -> GameState -> GameState
+dealCardToPlayer i s = s { gameDeck = rest, gamePlayers = players' }
+  where
+    (card:rest) = gameDeck s
+    players' = updateList i (addCard card) $ gamePlayers s
+
+-- | Draws a card from the deck and adds it to the dealer.
+dealCardToDealer :: GameState -> GameState
+dealCardToDealer s = s { gameDeck = rest, gameDealer = dealer' }
+  where
+    (card:rest) = gameDeck s
+    dealer' = addCard card $ gameDealer s
+
+-- | Removes players who have no money.
+removeBrokePlayers :: GameState -> GameState
+removeBrokePlayers s = s { gamePlayers = removedBroke }
+  where
+    removedBroke = filter ((/= 0) . playerMoney) $ gamePlayers s
+
+-- | Adds the given amount of money to the player given by the index.
+addMoneyToPlayer :: Int -> Int -> GameState -> GameState
+addMoneyToPlayer money i s = s { gamePlayers = players' }
+  where
+    players' = updateList i (addMoney money) $ gamePlayers s
+
+-- | Resets all of the player's scores to 0.
+resetScores :: GameState -> GameState
+resetScores s = s { gamePlayers = players' }
+  where
+    players' = (\p -> p { playerScore = 0}) <$> gamePlayers s
+
+-- | Deals cards to the dealer and the players.
+dealCards :: Int -> GameState -> GameState
+dealCards num s = (dealCardsToDealer . dealCardsToPlayers) s
+  where
+    dealIndexes = (\_ b -> b) <$> [1..num] <*> [0..numPlayers s - 1]
+    dealCardsToPlayers s = foldr dealCardToPlayer s dealIndexes
+    dealCardsToDealer s = foldr dealDealer s [1..num]
+    dealDealer _ = dealCardToDealer
+
 -- | Asks the players for the bets and sets the bets in the state.
 readBets :: GameStateM ()
 readBets = do
@@ -58,67 +99,27 @@ readBets = do
         lift $ readBet player (i + 1)
     put s { gameBets = bets }
 
--- | Draws a card from the deck and adds it to the player given by the index.
-dealCardToPlayer :: Int -> GameStateM ()
-dealCardToPlayer i = state $ \s ->
-    let (card:rest) = gameDeck s
-        players' = updateList i (addCard card) $ gamePlayers s
-    in ((), s { gameDeck = rest, gamePlayers = players' })
-
--- | Draws a card from the deck and adds it to the dealer.
-dealCardToDealer :: GameStateM ()
-dealCardToDealer = state $ \s ->
-    let (card:rest) = gameDeck s
-        dealer' = addCard card $ gameDealer s
-    in ((), s { gameDeck = rest, gameDealer = dealer' })
-
--- | Removes players who have no money.
-removeBrokePlayers :: GameStateM ()
-removeBrokePlayers = state $ \s ->
-    let removedBroke = filter ((/= 0) . playerMoney) $ gamePlayers s
-    in ((), s { gamePlayers = removedBroke })
-
--- | Adds the given amount of money to the player given by the index.
-addMoneyToPlayer :: Int -> Int -> GameStateM ()
-addMoneyToPlayer money i = state $ \s ->
-    let players' = updateList i (addMoney money) $ gamePlayers s
-    in ((), s { gamePlayers = players' })
-
--- | Resets all of the player's scores to 0.
-resetScores :: GameStateM ()
-resetScores = state $ \s ->
-    let players' = (\p -> p { playerScore = 0 }) <$> gamePlayers s
-    in ((), s { gamePlayers = players' })
-
--- | Deals cards to the dealer and the players.
-dealCards :: Int -> GameStateM ()
-dealCards num = do
-    s <- get
-    let dealIndexes = (\_ b -> b) <$> [1..num] <*> [0..numPlayers s - 1]
-    mapM_ dealCardToPlayer dealIndexes 
-    mapM_ (const dealCardToDealer) [1..num]
-
 -- | Checks if the player lost or won and either takes or gives money.
 handleBet :: Dealer -> Player -> Int -> Int -> GameStateM ()
 handleBet d p bet i
     | playerScore p > 21 = do
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ " busted"
-        addMoneyToPlayer (- bet) i
+        modify $ addMoneyToPlayer (- bet) i
         lift $ putStrLn $ "Player lost " ++ show bet
         return ()
     | dealerScore d > 21 = do
         lift $ putStrLn $ "The dealer busted but player " ++ show (i + 1) ++ " didn't bust"
-        addMoneyToPlayer bet i
+        modify $ addMoneyToPlayer bet i
         lift $ putStrLn $ "Player received " ++ show bet
         return ()
     | playerScore p > dealerScore d = do
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ " had a higher score than the dealer"
-        addMoneyToPlayer bet i
+        modify $ addMoneyToPlayer bet i
         lift $ putStrLn $ "Player received " ++ show bet
         return ()
     | otherwise = do
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ " had a lower or equal score than the dealer"
-        addMoneyToPlayer (- bet) i
+        modify $ addMoneyToPlayer (- bet) i
         lift $ putStrLn $ "Player lost " ++ show bet 
         return ()
 
@@ -159,7 +160,7 @@ handlePlayers i len
         action <- (lift . decideAction) (players !! i)
         case action of
             Hit -> do
-                dealCardToPlayer i
+                modify $ dealCardToPlayer i
                 handlePlayers i len
             Stand -> handlePlayers (i + 1) len
     | otherwise = do
@@ -168,7 +169,7 @@ handlePlayers i len
         lift $ putStrLn $ "Dealer's action is: " ++ show action
         case action of
             Hit -> do
-                dealCardToDealer
+                modify dealCardToDealer
                 handlePlayers i len
             Stand -> return ()
 
@@ -177,13 +178,13 @@ runTurn :: GameStateM ()
 runTurn = do
     displayMoney
     readBets
-    dealCards 2
+    modify $ dealCards 2
     s <- get
     handlePlayers 0 $ numPlayers s
     displayScores
     handleBets
-    resetScores
-    removeBrokePlayers
+    modify resetScores
+    modify removeBrokePlayers
 
 run :: GameStateM ()
 run = whileM_ (fmap ((/= 0) . numPlayers) get) runTurn
