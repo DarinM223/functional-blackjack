@@ -93,8 +93,7 @@ dealCards num s = (dealCardsToDealer . dealCardsToPlayers) s
 
 -- | Asks the players for the bets and sets the bets in the state.
 readBets :: GameStateM ()
-readBets = do
-    s <- get
+readBets = get >>= \s -> do -- Equivalent to doing s <- get inside the do block.
     bets <- forM (zip (gamePlayers s) [0..]) $ \(player, i) ->
         lift $ readBet player (i + 1)
     put s { gameBets = bets }
@@ -125,16 +124,14 @@ handleBet d p bet i
 
 -- | Displays the player's money.
 displayMoney :: GameStateM ()
-displayMoney = do
-    s <- get
+displayMoney = get >>= \s -> do
     forM_ (zip (gamePlayers s) [0..]) $ \(p,i) ->
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ "'s money is: " ++ show (playerMoney p)
     return ()
 
 -- | Displays the scores of the players and the dealer.
 displayScores :: GameStateM ()
-displayScores = do
-    s <- get
+displayScores = get >>= \s -> do
     lift $ putStrLn $ "The dealer's score is: " ++ show (dealerScore . gameDealer $ s)
     forM_ (zip (gamePlayers s) [0..]) $ \(p,i) ->
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ "'s score is: " ++ show (playerScore p)
@@ -142,8 +139,7 @@ displayScores = do
 
 -- | Handles the bet for every player after a turn.
 handleBets :: GameStateM ()
-handleBets = do
-    s <- get
+handleBets = get >>= \s -> do
     forM_ (zip3 (gamePlayers s) (gameBets s) [0..]) $ \(p, b, i) ->
         handleBet (gameDealer s) p b i
     return ()
@@ -153,8 +149,7 @@ handleBets = do
 -- (either automatically or chosen by the player).
 handlePlayers :: Int -> Int -> GameStateM ()
 handlePlayers i len
-    | i < len = do
-        s <- get
+    | i < len = get >>= \s -> do
         let players = gamePlayers s
         lift $ putStrLn $ "Player " ++ show (i + 1) ++ "'s current score is: " ++ (show . playerScore) (players !! i)
         action <- (lift . decideAction) (players !! i)
@@ -163,8 +158,7 @@ handlePlayers i len
                 modify $ dealCardToPlayer i
                 handlePlayers i len
             Stand -> handlePlayers (i + 1) len
-    | otherwise = do
-        s <- get
+    | otherwise = get >>= \s -> do
         action <- (lift . decideAction) $ gameDealer s
         lift $ putStrLn $ "Dealer's action is: " ++ show action
         case action of
@@ -179,8 +173,7 @@ runTurn = do
     displayMoney
     readBets
     modify $ dealCards 2
-    s <- get
-    handlePlayers 0 $ numPlayers s
+    get >>= \s -> handlePlayers 0 $ numPlayers s
     displayScores
     handleBets
     modify resetScores
