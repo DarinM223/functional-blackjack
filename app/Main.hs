@@ -1,4 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Main where
 
@@ -6,7 +8,9 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Loops
 import Control.Monad.State
+import Control.Monad.Reader
 import Control.Monad.Trans
+import Data.IORef
 import System.Random
 import System.Random.Shuffle
 
@@ -48,14 +52,35 @@ data GameState = GameState
     , gameBets    :: [Int]
     } deriving (Show)
 
-newtype GameStateT m a = GameStateT { fromGameStateT :: StateT GameState m a }
+newtype GameStateT m a = GameStateT { unGameStateT :: StateT GameState m a }
     deriving (Functor, Applicative, Monad, MonadIO, MonadState GameState)
 
-runGameStateT :: Monad m => GameStateT m a -> GameState -> m (a, GameState)
-runGameStateT m = runStateT $ fromGameStateT m
+runGameStateT :: (Monad m) => GameStateT m a -> GameState -> m (a, GameState)
+runGameStateT = runStateT . unGameStateT
 
-execGameStateT :: Monad m => GameStateT m a -> GameState -> m GameState
-execGameStateT m = execStateT $ fromGameStateT m
+execGameStateT :: (Monad m) => GameStateT m a -> GameState -> m GameState
+execGameStateT = execStateT . unGameStateT
+
+newtype GameStateIOT m a = GameStateIOT
+    { unGameStateIOT :: ReaderT (IORef GameState) m a
+    } deriving (Functor, Applicative, Monad, MonadIO)
+
+runGameStateIOT :: (MonadIO m) => GameStateIOT m a -> GameState -> m (a, GameState)
+runGameStateIOT (GameStateIOT (ReaderT f)) s = do
+    ref <- liftIO $ newIORef s
+    r <- f ref
+    s' <- liftIO $ readIORef ref
+    return (r, s')
+
+execGameStateIOT :: (MonadIO m) => GameStateIOT m a -> GameState -> m GameState
+execGameStateIOT (GameStateIOT (ReaderT f)) s = do
+    ref <- liftIO $ newIORef s
+    f ref
+    liftIO $ readIORef ref
+
+instance (MonadIO m) => MonadState GameState (GameStateIOT m) where
+    get = GameStateIOT $ ReaderT $ liftIO . readIORef
+    put x = GameStateIOT $ ReaderT $ \ref -> liftIO $ writeIORef ref x
 
 -- | Returns the number of players in the game.
 numPlayers :: GameState -> Int
@@ -103,14 +128,14 @@ dealCards num s = (dealCardsToDealer . dealCardsToPlayers) s
     dealDealer _ = dealCardToDealer
 
 -- | Asks the players for the bets and sets the bets in the state.
-readBets :: MonadIO m => GameStateT m ()
+readBets :: (MonadIO m, MonadState GameState m) => m ()
 readBets = get >>= \s -> do -- Equivalent to doing s <- get inside the do block.
     bets <- forM (zip (gamePlayers s) [0..]) $ \(player, i) ->
         liftIO $ readBet player (i + 1)
     put s { gameBets = bets }
 
 -- | Checks if the player lost or won and either takes or gives money.
-handleBet :: MonadIO m => Dealer -> Player -> Int -> Int -> GameStateT m ()
+handleBet :: (MonadIO m, MonadState GameState m) => Dealer -> Player -> Int -> Int -> m ()
 handleBet d p bet i
     | playerScore p > 21 = do
         liftIO $ putStrLn $ "Player " ++ show (i + 1) ++ " busted"
@@ -134,14 +159,14 @@ handleBet d p bet i
         return ()
 
 -- | Displays the player's money.
-displayMoney :: MonadIO m => GameStateT m ()
+displayMoney :: (MonadIO m, MonadState GameState m) => m ()
 displayMoney = get >>= \s -> do
     forM_ (zip (gamePlayers s) [0..]) $ \(p,i) ->
         liftIO $ putStrLn $ "Player " ++ show (i + 1) ++ "'s money is: " ++ show (playerMoney p)
     return ()
 
 -- | Displays the scores of the players and the dealer.
-displayScores :: MonadIO m => GameStateT m ()
+displayScores :: (MonadIO m, MonadState GameState m) => m ()
 displayScores = get >>= \s -> do
     liftIO $ putStrLn $ "The dealer's score is: " ++ show (dealerScore . gameDealer $ s)
     forM_ (zip (gamePlayers s) [0..]) $ \(p,i) ->
@@ -149,7 +174,7 @@ displayScores = get >>= \s -> do
     return ()
 
 -- | Handles the bet for every player after a turn.
-handleBets :: MonadIO m => GameStateT m ()
+handleBets :: (MonadIO m, MonadState GameState m) => m ()
 handleBets = get >>= \s -> do
     forM_ (zip3 (gamePlayers s) (gameBets s) [0..]) $ \(p, b, i) ->
         handleBet (gameDealer s) p b i
@@ -158,7 +183,7 @@ handleBets = get >>= \s -> do
 -- | Goes through every player asking for actions and applying them.
 -- Will ask for actions multiple times until it gets the Stand action
 -- (either automatically or chosen by the player).
-handlePlayers :: MonadIO m => Int -> Int -> GameStateT m ()
+handlePlayers :: (MonadIO m, MonadState GameState m) => Int -> Int -> m ()
 handlePlayers i len
     | i < len = get >>= \s -> do
         let players = gamePlayers s
@@ -179,7 +204,7 @@ handlePlayers i len
             Stand -> return ()
 
 -- | Runs a turn in the blackjack game.
-runTurn :: MonadIO m => GameStateT m ()
+runTurn :: (MonadIO m, MonadState GameState m) => m ()
 runTurn = do
     displayMoney
     readBets
@@ -190,7 +215,7 @@ runTurn = do
     modify resetScores
     modify removeBrokePlayers
 
-run :: (MonadIO m) => GameStateT m ()
+run :: (MonadIO m, MonadState GameState m) => m ()
 run = whileM_ (fmap ((/= 0) . numPlayers) get) runTurn
 
 class Playable p where
@@ -231,7 +256,11 @@ main = do
     let players = const (Player 0 0 initMoney) <$> [0..5]
     let dealer = Dealer 0 0
     let gameState = GameState dealer players (shuffleDeck gen deck) []
-    execGameStateT run gameState
+
+    -- Either execGameStateT or execGameStateIOT will work
+
+    -- execGameStateT run gameState
+    execGameStateIOT run gameState
     return ()
 
 --
